@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taxicab ve Kuş Uçuşu Hesaplayıcı</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css" />
+    
+    <style>
+        body { margin: 0; padding: 0; font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; overflow: hidden; background: #f0f2f5; }
+        #map { height: 100vh; width: 100%; z-index: 1; }
+        
+        /* Kontrol Paneli */
+        #panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 380px;
+            background: rgba(255, 255, 255, 0.98);
+            border-radius: 16px;
+            box-shadow: 0 12px 35px rgba(0,0,0,0.25);
+            z-index: 1000;
+            overflow: hidden;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.4);
+        }
+
+        /* Sekme Yapısı */
+        .tabs { display: flex; background: #e9ecef; padding: 4px; border-radius: 16px 16px 0 0; }
+        .tab {
+            flex: 1; padding: 14px; text-align: center; cursor: pointer; font-weight: 700;
+            color: #6c757d; transition: all 0.3s ease; border-radius: 12px; margin: 2px; font-size: 14px;
+        }
+        .tab:hover { background: #dfe4ea; color: #495057; }
+        .tab.bird-mode.active { background: white; color: #e74c3c; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .tab.taxi-mode.active { background: white; color: #f39c12; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+
+        /* İçerik Alanı */
+        .content { padding: 25px; text-align: center; }
+        .status { font-size: 15px; color: #666; margin-bottom: 20px; font-weight: 500; }
+        
+        .result-container { background: #f8f9fa; padding: 20px; border-radius: 12px; border: 2px solid #e9ecef; }
+        .main-result { font-size: 36px; font-weight: 800; color: #2c3e50; line-height: 1.2; }
+        .unit { font-size: 18px; font-weight: 600; color: #7f8c8d; }
+        .result-label { display: block; font-size: 13px; text-transform: uppercase; letter-spacing: 1px; color: #999; margin-bottom: 5px; }
+
+        /* Pisagor Kutusu */
+        #pythagoras-box {
+            margin-top: 20px; text-align: left; background: #fff; padding: 15px;
+            border-radius: 8px; border-left: 5px solid #e74c3c; box-shadow: 0 2px 10px rgba(0,0,0,0.05);
+        }
+        .math-formula { font-family: 'Courier New', monospace; font-size: 15px; color: #333; line-height: 1.6; }
+        .math-label { font-weight: bold; color: #e74c3c; font-size: 14px; margin-bottom: 8px; display: block; }
+
+        button {
+            background: linear-gradient(135deg, #2c3e50, #34495e); color: white; border: none;
+            padding: 14px; border-radius: 50px; cursor: pointer; font-size: 15px; font-weight: 700;
+            box-shadow: 0 6px 20px rgba(44, 62, 80, 0.25); transition: all 0.3s; margin-top: 25px;
+            width: 100%; display: flex; align-items: center; justify-content: center; gap: 10px;
+        }
+        button:hover { transform: translateY(-3px); box-shadow: 0 8px 25px rgba(44, 62, 80, 0.35); background: linear-gradient(135deg, #34495e, #2c3e50); }
+
+        .leaflet-div-icon { background: transparent; border: none; }
+        .leaflet-routing-container { display: none !important; }
+        
+        /* Etiket Stilleri */
+        .dist-tooltip { background: rgba(255,255,255,0.95); border: 2px solid #333; font-weight: bold; color: #333; font-size: 13px; border-radius: 6px; padding: 4px 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.3); }
+        .hyp-tooltip { color: #d63031 !important; border-color: #d63031 !important; font-size: 15px !important; z-index: 1000; }
+
+        /* Araba Resmi Stili */
+        .car-image { width: 100%; height: auto; transition: transform 0.3s ease-in-out; display: block; }
+    </style>
+</head>
+<body>
+
+    <div id="panel">
+        <div class="tabs">
+            <div class="tab bird-mode active" onclick="changeMode('bird')">🦅 Kuş Uçuşu</div>
+            <div class="tab taxi-mode" onclick="changeMode('taxi')">🚕 Taxicab Geometrisi</div>
+        </div>
+
+        <div class="content">
+            <div id="status-text" class="status">Haritadan iki nokta seçin.</div>
+            
+            <div id="result-box" style="display:none;">
+                <div class="result-container">
+                    <span class="result-label" id="res-label">Toplam Mesafe</span>
+                    <div class="main-result">
+                        <span id="distance-val">0.00</span> <span class="unit">km</span>
+                    </div>
+                </div>
+
+                <div id="pythagoras-box" style="display:none;">
+                    <span class="math-label">Pisagor Teoremi (a² + b² = c²)</span>
+                    <div class="math-formula" id="pythagoras-formula"></div>
+                </div>
+
+                <button onclick="fullReset()">
+                    <span>🗑️ Temizle ve Yeni Rota</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <div id="map"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+
+    <script>
+        // --- AYARLAR ---
+        const BIRD_ICON_URL = 'https://cdn-icons-png.flaticon.com/512/3069/3069186.png'; 
+        const CAR_ICON_URL = 'scirocco.png'; // scirocco.png dosyasının yanda olduğundan emin ol.
+
+        var map = L.map('map').setView([41.0082, 28.9784], 13);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { attribution: '© OpenStreetMap' }).addTo(map);
+
+        var currentMode = 'bird'; 
+        var markers = [];      
+        var activeLayers = []; 
+        var animationInterval = null;
+
+        function changeMode(mode) {
+            currentMode = mode;
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            if(mode === 'bird') document.querySelector('.bird-mode').classList.add('active');
+            else document.querySelector('.taxi-mode').classList.add('active');
+
+            if (markers.length === 2) {
+                clearVisualsOnly(); 
+                startCalculation(markers[0].getLatLng(), markers[1].getLatLng());
+            }
+        }
+
+        map.on('click', function(e) {
+            if (markers.length >= 2) return;
+            var marker = L.marker(e.latlng).addTo(map);
+            markers.push(marker);
+            if (markers.length === 1) document.getElementById('status-text').innerHTML = "Şimdi <b>bitiş noktasını</b> seçin.";
+            else if (markers.length === 2) startCalculation(markers[0].getLatLng(), markers[1].getLatLng());
+        });
+
+        function startCalculation(p1, p2) {
+            document.getElementById('status-text').innerText = "Hesaplanıyor...";
+            document.getElementById('pythagoras-box').style.display = 'none';
+            if (currentMode === 'bird') calculateBird(p1, p2);
+            else calculateTaxi(p1, p2);
+        }
+
+        function calculateBird(p1, p2) {
+            var distC = p1.distanceTo(p2) / 1000;
+            var cornerPoint = L.latLng(p1.lat, p2.lng);
+            var distA = p1.distanceTo(cornerPoint) / 1000; 
+            var distB = cornerPoint.distanceTo(p2) / 1000; 
+
+            showResult(distC, 'Kuş Uçuşu (Hipotenüs)');
+            document.getElementById('pythagoras-box').style.display = 'block';
+            document.getElementById('pythagoras-formula').innerHTML = 
+                `a = ${distA.toFixed(2)} km (Yatay)<br>b = ${distB.toFixed(2)} km (Dikey)<br>` +
+                `<hr style="margin: 5px 0; opacity:0.3">√(${distA.toFixed(1)}² + ${distB.toFixed(1)}²) = <b>${distC.toFixed(2)} km</b>`;
+
+            // --- 1. Ana Çizgi (Hipotenüs - Kırmızı) ---
+            var lineC = L.polyline([p1, p2], { color: '#e74c3c', weight: 6, opacity: 0.9 }).addTo(map);
+            activeLayers.push(lineC);
+            
+            // --- 2. Dik Kenarlar (BELİRGİN) ---
+            var lineA = L.polyline([p1, cornerPoint], { 
+                color: '#0984e3',   
+                weight: 7,          
+                dashArray: '15, 10', 
+                opacity: 1.0        
+            }).addTo(map);
+
+            var lineB = L.polyline([cornerPoint, p2], { 
+                color: '#00b894',   
+                weight: 7,          
+                dashArray: '15, 10', 
+                opacity: 1.0
+            }).addTo(map);
+            
+            activeLayers.push(lineA, lineB);
+
+            // Etiketler
+            var midA = L.latLng(p1.lat, (p1.lng + p2.lng)/2);
+            var tooltipA = L.tooltip({permanent: true, direction: 'center', className: 'dist-tooltip'}).setLatLng(midA).setContent(distA.toFixed(2) + ' km').addTo(map);
+            var midB = L.latLng((p1.lat + p2.lat)/2, p2.lng);
+            var tooltipB = L.tooltip({permanent: true, direction: 'center', className: 'dist-tooltip'}).setLatLng(midB).setContent(distB.toFixed(2) + ' km').addTo(map);
+            var midC = L.latLng((p1.lat + p2.lat)/2, (p1.lng + p2.lng)/2);
+            var tooltipC = L.tooltip({permanent: true, direction: 'center', className: 'dist-tooltip hyp-tooltip'}).setLatLng(midC).setContent(distC.toFixed(2) + ' km').addTo(map);
+            activeLayers.push(tooltipA, tooltipB, tooltipC);
+
+            map.fitBounds(lineC.getBounds().pad(0.2));
+            animateIcon(p1, p2, BIRD_ICON_URL, 2000, false); 
+        }
+
+        function calculateTaxi(p1, p2) {
+            var routingControl = L.Routing.control({
+                waypoints: [p1, p2],
+                lineOptions: { styles: [{color: '#f39c12', opacity: 0.9, weight: 8}] }, // Yol çizgisi kalın
+                createMarker: function() { return null; },
+                addWaypoints: false, draggableWaypoints: false, fitSelectedRoutes: true, show: false
+            }).addTo(map);
+            activeLayers.push(routingControl);
+
+            routingControl.on('routesfound', function(e) {
+                var route = e.routes[0];
+                var dist = route.summary.totalDistance / 1000;
+                showResult(dist, 'Taxicab (Manhattan) Mesafesi');
+                animatePath(route.coordinates, CAR_ICON_URL);
+            });
+        }
+
+        function animateIcon(start, end, iconUrl, duration, isCar) {
+            var icon = L.icon({iconUrl: iconUrl, iconSize: [45, 45], iconAnchor: [22, 22]});
+            var movingMarker = L.marker(start, {icon: icon, zIndexOffset: 1000}).addTo(map);
+            activeLayers.push(movingMarker);
+
+            var startTime = performance.now();
+            function frame(time) {
+                var progress = (time - startTime) / duration;
+                if (progress > 1) progress = 1;
+                var currentLat = start.lat + (end.lat - start.lat) * progress;
+                var currentLng = start.lng + (end.lng - start.lng) * progress;
+                movingMarker.setLatLng([currentLat, currentLng]);
+                if (progress < 1) animationInterval = requestAnimationFrame(frame);
+            }
+            animationInterval = requestAnimationFrame(frame);
+        }
+
+        function animatePath(coords, iconUrl) {
+            var carIcon = L.divIcon({
+                className: 'car-marker-container',
+                html: `<img src="${iconUrl}" class="car-image" style="width: 70px;">`, 
+                iconSize: [70, 35], iconAnchor: [35, 17]
+            });
+
+            var movingMarker = L.marker(coords[0], {icon: carIcon, zIndexOffset: 1000}).addTo(map);
+            activeLayers.push(movingMarker);
+
+            var i = 0;
+            var speed = 20; 
+            var step = 4;   
+
+            clearInterval(animationInterval);
+            animationInterval = setInterval(function() {
+                if (i >= coords.length - 1) { clearInterval(animationInterval); return; }
+
+                var currentPos = coords[i];
+                var nextIndex = Math.min(i + step, coords.length - 1);
+                var nextPos = coords[nextIndex];
+
+                // Yön Kontrolü
+                var deltaLng = nextPos.lng - currentPos.lng;
+                var imgElement = movingMarker.getElement().querySelector('.car-image');
+                
+                if (imgElement) {
+                    if (deltaLng > 0.0005) imgElement.style.transform = "scaleX(-1)"; // Doğu -> Çevir
+                    else if (deltaLng < -0.0005) imgElement.style.transform = "scaleX(1)"; // Batı -> Normal
+                }
+
+                movingMarker.setLatLng(nextPos);
+                i = nextIndex;
+            }, speed);
+        }
+
+        function showResult(dist, label) {
+            document.getElementById('result-box').style.display = 'block';
+            document.getElementById('distance-val').innerText = dist.toFixed(2);
+            document.getElementById('res-label').innerText = label;
+            document.getElementById('status-text').innerText = "Hesaplama tamamlandı!";
+        }
+
+        function clearVisualsOnly() {
+            if (animationInterval) { cancelAnimationFrame(animationInterval); clearInterval(animationInterval); }
+            activeLayers.forEach(layer => {
+                if (layer instanceof L.Routing.Control) map.removeControl(layer);
+                else map.removeLayer(layer);
+            });
+            activeLayers = [];
+        }
+
+        function fullReset() {
+            clearVisualsOnly();
+            markers.forEach(m => map.removeLayer(m));
+            markers = [];
+            document.getElementById('result-box').style.display = 'none';
+            document.getElementById('status-text').innerText = "Haritadan iki nokta seçin.";
+        }
+    </script>
+</body>
+</html>
